@@ -1,0 +1,72 @@
+#!/bin/bash
+# AI-generated base by ChatGPT (with my modifications for dual-OS compatibility and safety)
+# Cybersecurity Hardening Script for Ubuntu 24.04 LTS and CentOS Stream 9
+
+set -euo pipefail  # My addition: exit on error, undefined vars, pipe failures (safety)
+
+LOGFILE="/var/log/server_hardening.log"
+echo "Starting server hardening at $(date)" | tee -a "$LOGFILE"
+
+# OS detection (AI core logic)
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_FAMILY=$ID
+    if [ "$OS_FAMILY" = "ubuntu" ]; then
+        PKG_MANAGER="apt"
+        FIREWALL="ufw"
+        SSH_SERVICE="ssh"
+    elif [ "$OS_FAMILY" = "centos" ]; then
+        PKG_MANAGER="dnf"
+        FIREWALL="firewalld"
+        SSH_SERVICE="sshd"
+    else
+        echo "Unsupported OS: $OS_FAMILY" | tee -a "$LOGFILE"
+        exit 1
+    fi
+else
+    echo "Cannot detect OS" | tee -a "$LOGFILE"
+    exit 1
+fi
+echo "Detected OS family: $OS_FAMILY" | tee -a "$LOGFILE"
+
+# Update system (AI core)
+echo "Updating system packages..." | tee -a "$LOGFILE"
+if [ "$PKG_MANAGER" = "apt" ]; then
+    apt-get update -qq && apt-get upgrade -y -qq
+    apt-get install -y -qq ufw fail2ban
+elif [ "$PKG_MANAGER" = "dnf" ]; then
+    dnf update -y -q
+    dnf install -y -q firewalld fail2ban
+fi
+
+# Configure firewall (AI core with my ufw tweak)
+echo "Configuring firewall..." | tee -a "$LOGFILE"
+if [ "$FIREWALL" = "ufw" ]; then
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow OpenSSH
+    ufw --force enable
+elif [ "$FIREWALL" = "firewalld" ]; then
+    systemctl enable --now firewalld
+    firewall-cmd --permanent --add-service=ssh
+    firewall-cmd --reload
+fi
+echo "Firewall configured" | tee -a "$LOGFILE"
+
+# Disable root SSH login (AI core + my backup)
+echo "Disabling root SSH login..." | tee -a "$LOGFILE"
+SSH_CONFIG="/etc/ssh/sshd_config"
+if [ -f "$SSH_CONFIG" ]; then
+    cp "$SSH_CONFIG" "$SSH_CONFIG.bak.$(date +%F)"  # My addition: backup
+    sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' "$SSH_CONFIG"
+    sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' "$SSH_CONFIG"
+    systemctl restart "$SSH_SERVICE"
+else
+    echo "SSH config not found" | tee -a "$LOGFILE"
+fi
+
+# Enable fail2ban (AI core)
+echo "Enabling fail2ban..." | tee -a "$LOGFILE"
+systemctl enable --now fail2ban
+
+echo "Hardening complete. Log file at $LOGFILE" | tee -a "$LOGFILE"
