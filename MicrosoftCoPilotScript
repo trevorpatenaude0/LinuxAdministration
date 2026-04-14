@@ -1,0 +1,79 @@
+#!/bin/bash
+# ================================================
+# AI-generated base by Microsoft Copilot
+# Cybersecurity Hardening Script for Ubuntu 24.04 LTS and CentOS Stream 9
+# My modifications: OS detection fixes, dnf instead of yum, safety flags,
+# SSH service detection, quiet updates, and config backup.
+# ================================================
+
+set -euo pipefail  # My addition: Exit on any error, undefined variables, or pipe failures
+
+LOGFILE="/var/log/server_hardening.log"
+echo "=== Server Hardening Started at $(date) ===" | tee -a "$LOGFILE"
+
+# OS Detection (core logic from Copilot)
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS_FAMILY="${ID:-unknown}"
+    if [[ "$OS_FAMILY" == "ubuntu" ]]; then
+        PKG_MANAGER="apt"
+        FIREWALL="ufw"
+        SSH_SERVICE="ssh"
+        echo "Detected Ubuntu 24.04 LTS" | tee -a "$LOGFILE"
+    elif [[ "$OS_FAMILY" == "centos" ]]; then
+        PKG_MANAGER="dnf"
+        FIREWALL="firewalld"
+        SSH_SERVICE="sshd"
+        echo "Detected CentOS Stream 9" | tee -a "$LOGFILE"
+    else
+        echo "ERROR: Unsupported OS: $OS_FAMILY" | tee -a "$LOGFILE"
+        exit 1
+    fi
+else
+    echo "ERROR: Cannot detect OS - /etc/os-release not found" | tee -a "$LOGFILE"
+    exit 1
+fi
+
+# Update system packages
+echo "Updating system packages (quiet mode)..." | tee -a "$LOGFILE"
+if [ "$PKG_MANAGER" = "apt" ]; then
+    apt-get update -qq && apt-get upgrade -y -qq
+    apt-get install -y -qq ufw fail2ban
+elif [ "$PKG_MANAGER" = "dnf" ]; then
+    dnf update -y -q
+    dnf install -y -q firewalld fail2ban
+fi
+
+# Configure firewall
+echo "Configuring ${FIREWALL} firewall..." | tee -a "$LOGFILE"
+if [ "$FIREWALL" = "ufw" ]; then
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow OpenSSH
+    ufw --force enable
+elif [ "$FIREWALL" = "firewalld" ]; then
+    systemctl enable --now firewalld
+    firewall-cmd --permanent --add-service=ssh
+    firewall-cmd --reload
+fi
+echo "Firewall is now active and configured" | tee -a "$LOGFILE"
+
+# Disable root SSH login with backup
+echo "Disabling root SSH login..." | tee -a "$LOGFILE"
+SSH_CONFIG="/etc/ssh/sshd_config"
+if [ -f "$SSH_CONFIG" ]; then
+    cp "$SSH_CONFIG" "${SSH_CONFIG}.bak.$(date +%F_%H%M%S)"  # Backup with timestamp
+    sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' "$SSH_CONFIG"
+    sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' "$SSH_CONFIG"
+    systemctl restart "$SSH_SERVICE"
+    echo "Root login disabled and ${SSH_SERVICE} restarted" | tee -a "$LOGFILE"
+else
+    echo "WARNING: SSH config file not found" | tee -a "$LOGFILE"
+fi
+
+# Enable fail2ban
+echo "Enabling and starting fail2ban..." | tee -a "$LOGFILE"
+systemctl enable --now fail2ban
+echo "fail2ban is now active" | tee -a "$LOGFILE"
+
+echo "=== Hardening Complete! Log saved to $LOGFILE ===" | tee -a "$LOGFILE
